@@ -48,7 +48,7 @@ int main(int argc, char *argv[]){
     struct Oss_clock *clockptr;
     char filename[20] = "log.txt";
     int opt, t = 2, n = 18, shmid, status = 0, sendmsgid, rcmsgid, clockIncrement,
-        scheduleTimeSec = 0, scheduleTimeNSec = 0, bound = 5;
+        scheduleTimeSec = 0, scheduleTimeNSec = 0, currentframeIndex = 0;
     double percentage = 0.0;
     key_t shmkey = 3670404;
     key_t recievekey = 3670405;
@@ -59,6 +59,7 @@ int main(int argc, char *argv[]){
     FILE *logPtr;
     parent = getpid();
     frameSegment frames[256];
+    frameSegment* frameClockPtr;
     srand(time(0));
 
     
