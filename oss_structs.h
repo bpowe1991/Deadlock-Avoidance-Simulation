@@ -17,20 +17,19 @@ structures. The function declarations are also stated here.
 typedef struct processMessage {
     long mesg_type; 
     char mesg_text[100];
-    int choice_index;
+    int address;
     int choice; 
 } message;
 
 //Structure for page data.
 typedef struct pageData {
-    int referenceBit;
-    int dirtyBit;
     int frameIndex;
+    int dirtyBit;
 } page;
 
 //Stucture of process control block.
 typedef struct processBlock {
-    pid_t pid;
+    long pid;
     page pageTable[32];
     int numPageFaults;
     int numMemAccess;
@@ -38,8 +37,10 @@ typedef struct processBlock {
 
 //Structure for frame segment.
 typedef struct frameSegment {
-    pid_t pid;
+    long pid;
     int pageNumber;
+    int referenceBit;
+    int dirtyBit;
 } frameSegment;
 
 //Structure to be used in shared memory.

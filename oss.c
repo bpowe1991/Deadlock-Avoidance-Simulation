@@ -30,12 +30,9 @@ it uses a -t option.
 
 int flag = 0;
 pid_t parent;
-int processCount = 0, writtenTo, writeCounter; 
-const int resourceCount = 20; 
-bool verbose = false;
+int processCount = 0, writtenTo, writeCounter;  
 
 int is_pos_int(char test_string[]);
-
 void alarmHandler();
 void interruptHandler();
 
@@ -59,13 +56,13 @@ int main(int argc, char *argv[]){
     FILE *logPtr;
     parent = getpid();
     frameSegment frames[256];
-    frameSegment* frameClockPtr;
+    int currentFrameIndex;
     srand(time(0));
 
     
     
     //Setting blocked queue and in system process list for oss.
-    //queue* processes = createQueue(18);
+    queue* processes = createQueue(n);
 
     //Parsing options.
     while((opt = getopt(argc, argv, "n:t:l:vhp")) != -1){
@@ -110,18 +107,15 @@ int main(int argc, char *argv[]){
                     exit(-1);
                 }
 				break;
-            
-            //Verbose option.
-            case 'v':
-                verbose = true;
-				break;
             //Help option.
             case 'h':
-                fprintf(stderr, "\nThis program simulates resource management with deadlock\n"\
-                                "avoidance. The parent increments a clock in shared memory and\n"\
+                fprintf(stderr, "\nThis program simulates memory management with the clock\n"\
+                                "agorithm. The parent increments a clock in shared memory and\n"\
                                 "schedules children to run based around the clock.\n"\
-                                "Banker's algorithm is used for deadlock avoidance.\n"\
+                                "Child process make memory request and the parent manages them.\n"\
                                 "OPTIONS:\n\n"\
+                                "-n Set the number of concurrent child processes that will run."\
+                                "(i.e. -n 4 allows 4 processes to run at the same time).\n"\
                                 "-t Set the number of seconds the program will run."\
                                 "(i.e. -t 4 allows the program to run for 4 sec).\n"\
                                 "-l set the name of the log file (default: log.txt).\n"\
@@ -188,9 +182,95 @@ int main(int argc, char *argv[]){
         exit(1);
     }
 
+    //Setting up system frames.
+    int a;
+    for (a = 0; a < 256; a++){
+        frames[a].pid = -1;
+    }
 
-    if (msgrcv(rcmsgid, &recieveMsg, sizeof(sendMsg), 0, IPC_NOWAIT) != -1){}
+    while (flag != 1) {
+        //Setting scheduling time.           
+        if (scheduleTimeNSec == 0 && scheduleTimeSec == 0){
+            scheduleTimeNSec = clockptr->nanoSec + ((rand() % (500000000 - 1000000 + 1)) + 1000000);
+            if (scheduleTimeNSec > ((int)1e9)) {
+                scheduleTimeSec += (scheduleTimeNSec / ((int)1e9));
+                scheduleTimeNSec = (scheduleTimeNSec % ((int)1e9));
+            }
+        }
 
+        //Incrementing clock.
+        clockIncrement = (rand() % (15000000 - 5000000 + 1)) + 5000000;
+        clockptr->nanoSec += clockIncrement;
+        if (clockptr->nanoSec > ((int)1e9)) {
+            clockptr->sec += (clockptr->nanoSec/((int)1e9));
+            clockptr->nanoSec = (clockptr->nanoSec%((int)1e9));
+        }
+        
+        //Checking if new process is ready to be created.
+        if ((clockptr->sec > scheduleTimeSec) || 
+            (clockptr->sec == scheduleTimeSec && clockptr->nanoSec >= scheduleTimeNSec)){
+            scheduleTimeNSec = 0;
+            scheduleTimeSec = 0;
+
+            if (processCount < 18) {
+                //Create new process
+                processBlock newProcess;
+                
+                //Forking child.
+                if ((childpid = fork()) < 0) {
+                    perror(strcat(argv[0],": Error: Failed to create child"));
+                }
+                else if (childpid == 0) {
+                    char *args[]={"./user", NULL};
+                    if ((execvp(args[0], args)) == -1) {
+                        perror(strcat(argv[0],": Error: Failed to execvp child program\n"));
+                        exit(-1);
+                    }
+                }
+
+                //Adding process to oss processes queue.
+                newProcess.pid = (long) childpid;
+                
+                //Setting pageTable to default.
+                int x;
+                for (x = 0; x < 32; x++) {
+                    newProcess.pageTable[x].frameIndex = -1;
+                }
+
+                enqueue(processes, newProcess);
+                clockptr->numChildren++;
+                processCount++;
+                
+                //Adjusting for overhead.
+                clockptr->nanoSec += (rand() % (50000 - 10000 + 1)) + 10000;
+                if (clockptr->nanoSec > ((int)1e9)) {
+                    clockptr->sec += (clockptr->nanoSec / ((int)1e9));
+                    clockptr->nanoSec = (clockptr->nanoSec % ((int)1e9));
+                }
+
+                //Writing to log file.
+                if (writtenTo < 10000){
+                    fprintf(logPtr, "OSS : %ld : Adding to system at %d.%d\n", 
+                            (long) childpid, clockptr->sec, clockptr->nanoSec);
+                    writtenTo++;
+                    writeCounter++;
+                }
+            }
+        }
+        
+        //Checking messages in recieve message queue.
+        if (msgrcv(rcmsgid, &recieveMsg, sizeof(sendMsg), 0, IPC_NOWAIT) != -1){
+            if (recieveMsg.choice < 3){
+                fprintf(logPtr, "OSS : %s\n", recieveMsg.mesg_text);
+                writtenTo++;
+                writeCounter++;
+                int pageNumber = recieveMsg.address/1000;
+            }
+            else if (recieveMsg.choice == 3){
+
+            }
+        }
+    }
 
     //Detaching from memory segment.
     if (shmdt(clockptr) == -1) {
