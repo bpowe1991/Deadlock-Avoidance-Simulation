@@ -30,7 +30,7 @@ it uses a -t option.
 
 int flag = 0;
 pid_t parent;
-int processCount = 0, writtenTo, writeCounter;  
+int processCount = 0, writtenTo;  
 
 int is_pos_int(char test_string[]);
 void alarmHandler();
@@ -45,7 +45,7 @@ int main(int argc, char *argv[]){
     struct Oss_clock *clockptr;
     char filename[20] = "log.txt";
     int opt, t = 2, n = 18, shmid, status = 0, sendmsgid, rcmsgid, clockIncrement,
-        scheduleTimeSec = 0, scheduleTimeNSec = 0, currentframeIndex = 0;
+        scheduleTimeSec = 0, scheduleTimeNSec = 0, currentFrameIndex = 0;
     double percentage = 0.0;
     key_t shmkey = 3670404;
     key_t recievekey = 3670405;
@@ -56,7 +56,6 @@ int main(int argc, char *argv[]){
     FILE *logPtr;
     parent = getpid();
     frameSegment frames[256];
-    int currentFrameIndex;
     srand(time(0));
 
     
@@ -67,6 +66,7 @@ int main(int argc, char *argv[]){
     //Parsing options.
     while((opt = getopt(argc, argv, "n:t:l:vhp")) != -1){
 		switch(opt){
+            
             //Option to enter n.
             case 'n':
 				if(is_pos_int(optarg) == 1){
@@ -82,6 +82,7 @@ int main(int argc, char *argv[]){
                     }
 				}
 				break;
+            
             //Option to enter t.
             case 't':
 				if(is_pos_int(optarg) == 1){
@@ -107,6 +108,7 @@ int main(int argc, char *argv[]){
                     exit(-1);
                 }
 				break;
+            
             //Help option.
             case 'h':
                 fprintf(stderr, "\nThis program simulates memory management with the clock\n"\
@@ -186,9 +188,11 @@ int main(int argc, char *argv[]){
     int a;
     for (a = 0; a < 256; a++){
         frames[a].pid = -1;
+        frames[a].pageNumber = -1;
     }
 
     while (flag != 1) {
+        
         //Setting scheduling time.           
         if (scheduleTimeNSec == 0 && scheduleTimeSec == 0){
             scheduleTimeNSec = clockptr->nanoSec + ((rand() % (500000000 - 1000000 + 1)) + 1000000);
@@ -199,8 +203,7 @@ int main(int argc, char *argv[]){
         }
 
         //Incrementing clock.
-        clockIncrement = (rand() % (15000000 - 5000000 + 1)) + 5000000;
-        clockptr->nanoSec += clockIncrement;
+        clockptr->nanoSec += (rand() % (15000000 - 5000000 + 1)) + 5000000;
         if (clockptr->nanoSec > ((int)1e9)) {
             clockptr->sec += (clockptr->nanoSec/((int)1e9));
             clockptr->nanoSec = (clockptr->nanoSec%((int)1e9));
@@ -213,6 +216,7 @@ int main(int argc, char *argv[]){
             scheduleTimeSec = 0;
 
             if (processCount < 18) {
+                
                 //Create new process
                 processBlock newProcess;
                 
@@ -237,6 +241,7 @@ int main(int argc, char *argv[]){
                     newProcess.pageTable[x].frameIndex = -1;
                 }
 
+                //Adding to queue processes.
                 enqueue(processes, newProcess);
                 clockptr->numChildren++;
                 processCount++;
@@ -248,27 +253,191 @@ int main(int argc, char *argv[]){
                     clockptr->nanoSec = (clockptr->nanoSec % ((int)1e9));
                 }
 
-                //Writing to log file.
-                if (writtenTo < 10000){
-                    fprintf(logPtr, "OSS : %ld : Adding to system at %d.%d\n", 
-                            (long) childpid, clockptr->sec, clockptr->nanoSec);
-                    writtenTo++;
-                    writeCounter++;
-                }
+                fprintf(logPtr, "OSS : %ld : Adding to system at %d.%d\n", 
+                        (long) childpid, clockptr->sec, clockptr->nanoSec);
+                writtenTo++;
+
             }
         }
         
         //Checking messages in recieve message queue.
         if (msgrcv(rcmsgid, &recieveMsg, sizeof(sendMsg), 0, IPC_NOWAIT) != -1){
+            sendMsg.mesg_type = recieveMsg.mesg_type;
+            
+            //Handling memory request.
             if (recieveMsg.choice < 3){
                 fprintf(logPtr, "OSS : %s\n", recieveMsg.mesg_text);
                 writtenTo++;
-                writeCounter++;
                 int pageNumber = recieveMsg.address/1000;
-            }
-            else if (recieveMsg.choice == 3){
 
+                int x;
+                for (x = 0; x < processes->size; x++){
+                    if (processes->array[x].pid == recieveMsg.mesg_type){
+                        
+                        //If the page has a frame.
+                        if (processes->array[x].pageTable[pageNumber-1].frameIndex != -1){
+                            
+                            //Incrementing clock.
+                            clockptr->nanoSec += 10;
+                            if (clockptr->nanoSec > ((int)1e9)) {
+                                clockptr->sec += (clockptr->nanoSec/((int)1e9));
+                                clockptr->nanoSec = (clockptr->nanoSec%((int)1e9));
+                            }
+
+                            if (recieveMsg.choice == 1){
+                                fprintf(logPtr, "OSS : %ld : Address %d in frame %d, giving data at time %d.%d\n", 
+                                        recieveMsg.mesg_type, recieveMsg.address, 
+                                        processes->array[x].pageTable[pageNumber-1].frameIndex, 
+                                        clockptr->sec, clockptr->nanoSec);
+                                frames[processes->array[x].pageTable[pageNumber-1].frameIndex].referenceBit = 1;
+                            }
+                            else{
+                                fprintf(logPtr, "OSS : %ld : Address %d in frame %d, writing data to frame at time %d.%d\n", 
+                                        recieveMsg.mesg_type, recieveMsg.address,
+                                        processes->array[x].pageTable[pageNumber-1].frameIndex, 
+                                        clockptr->sec, clockptr->nanoSec);
+                                frames[processes->array[x].pageTable[pageNumber-1].frameIndex].referenceBit = 1;
+                                processes->array[x].pageTable[pageNumber-1].dirtyBit = 1;
+                            }
+                            writtenTo++;
+                            clockptr->numTotalMemAccess++;
+                            processes->array[x].numMemAccess++;
+                            break;
+                        }
+
+                        //If page doesn't have a frame.
+                        else{
+                            fprintf(logPtr, "OSS : %ld : PAGEFAULT, Address %d not in a frame\n", 
+                                    recieveMsg.mesg_type, recieveMsg.address);
+                            writtenTo++;
+
+                            //Cycling through frames to find an empty frame or unreferenced frame.
+                            bool found = false;
+                            while (found == false){
+
+                                //If an empty frame is found.
+                                if (frames[currentFrameIndex].pid == -1){
+                                    processes->array[x].pageTable[pageNumber-1].frameIndex = currentFrameIndex;
+                                    frames[currentFrameIndex].pid = processes->array[x].pid;
+                                    frames[currentFrameIndex].referenceBit = 1;
+                                    frames[currentFrameIndex].pageNumber = pageNumber;
+                                    found = true;
+                                    fprintf(logPtr, "OSS : %ld : Adding page %d to empty frame %d, adding time to clock\n",
+                                            recieveMsg.mesg_type, pageNumber, currentFrameIndex);
+                                    writtenTo++;
+                                }
+
+                                //If an unreferenced frame is found.
+                                else if (frames[currentFrameIndex].pid > 0 && 
+                                         frames[currentFrameIndex].referenceBit == 0){
+                                    int y;
+                                    for (y = 0; y < 32; y++){
+                                        if (processes->array[y].pid == frames[currentFrameIndex].pid){
+                                            processes->array[y].pageTable[frames[currentFrameIndex].pageNumber-1].frameIndex = -1;
+                                            frames[currentFrameIndex].pid = recieveMsg.mesg_type;
+                                            frames[currentFrameIndex].referenceBit = 1;
+                                            frames[currentFrameIndex].dirtyBit = 1;
+                                            frames[currentFrameIndex].pageNumber = pageNumber;
+                                            frames[currentFrameIndex].pid = processes->array[x].pid;
+                                            processes->array[x].pageTable[pageNumber-1].frameIndex = currentFrameIndex;
+                                            break;
+                                        }
+                                    }
+                                    found = true;
+                                    fprintf(logPtr, "OSS : %ld : Clearing frame %d, swapping in page %d\n",
+                                            recieveMsg.mesg_type, currentFrameIndex, pageNumber);
+                                    fprintf(logPtr, "OSS : %ld : Dirty bit of frame %d set, adding time to clock\n",
+                                            recieveMsg.mesg_type, currentFrameIndex);
+                                    writtenTo += 2;
+                                }
+                                frames[currentFrameIndex].referenceBit = 0;
+                                currentFrameIndex = (currentFrameIndex+1) % 256;
+                            }
+
+                            //Adjusting for overhead.
+                            clockptr->nanoSec += (rand() % (50000 - 10000 + 1)) + 10000;
+                            if (clockptr->nanoSec > ((int)1e9)) {
+                                clockptr->sec += (clockptr->nanoSec / ((int)1e9));
+                                clockptr->nanoSec = (clockptr->nanoSec % ((int)1e9));
+                            }
+                            break;
+                        }
+
+                        //Incrementing clock for read/write.
+                        clockptr->nanoSec += 15;
+                        if (clockptr->nanoSec > ((int)1e9)) {
+                            clockptr->sec += (clockptr->nanoSec/((int)1e9));
+                            clockptr->nanoSec = (clockptr->nanoSec%((int)1e9));
+                        }
+
+                        //Informing that read/write was processed.
+                        if (recieveMsg.choice == 1){
+                            fprintf(logPtr, "OSS : %ld : Address %d data sent at time %d.%d\n", 
+                                    recieveMsg.mesg_type, recieveMsg.address, 
+                                    clockptr->sec, clockptr->nanoSec);
+                        }
+                        else if (recieveMsg.choice == 2){
+                            fprintf(logPtr, "OSS : %ld : Address %d written to frame at time %d.%d\n", 
+                                    recieveMsg.mesg_type, recieveMsg.address,
+                                    clockptr->sec, clockptr->nanoSec);
+                        }
+                        writtenTo++;
+                        break;
+                    }
+                }
+                sprintf(sendMsg.mesg_text, "Memory Handled");
             }
+            //Handling a processe's request to terminate.
+            else if (recieveMsg.choice == 3){
+                
+                //Adjusting for overhead.
+                clockptr->nanoSec += (rand() % (50000 - 10000 + 1)) + 10000;
+                if (clockptr->nanoSec > ((int)1e9)) {
+                    clockptr->sec += (clockptr->nanoSec / ((int)1e9));
+                    clockptr->nanoSec = (clockptr->nanoSec % ((int)1e9));
+                }
+
+                //Clearing associated frames.
+                int x;
+                for (x = 0; x < 256; x++){
+                    if (frames[x].pid == recieveMsg.mesg_type){
+                        frames[x].pid = -1;
+                        frames[x].dirtyBit = 0;
+                        frames[x].referenceBit = 0;
+                        frames[x].pageNumber = -1;
+                    }
+                }
+                
+                //Removing process from process list.
+                for (x = 0; x < processes->size; x++){
+                    if (front(processes)->pid == recieveMsg.mesg_type){
+                        dequeue(processes);
+                        break;
+                    }
+                    enqueue(processes, *dequeue(processes));
+                }
+                processCount--;
+                sprintf(sendMsg.mesg_text, "Memory Handled");
+                fprintf(logPtr, "OSS : %ld : Terminating at time %d.%d\n", recieveMsg.mesg_type,
+                            clockptr->sec, clockptr->nanoSec);
+                writtenTo++;
+            }
+            
+            //Sending message to process.
+            msgsnd(sendmsgid, &sendMsg, sizeof(sendMsg), IPC_NOWAIT);
+        }
+
+        //Checking
+        if (writtenTo >= 10000){
+            flag = 1;
+        }
+    }
+
+    //Sending signal to all children
+    if (flag == 1) {
+        if (kill(-parent, SIGQUIT) == -1) {
+            perror(strcat(argv[0],": Error: Failed kill"));
+            exit(-1);
         }
     }
 
@@ -313,3 +482,13 @@ int is_pos_int(char test_string[]){
 
 	return is_num;
 } 
+
+//Signal handler for 2 sec alarm
+void alarmHandler() {
+    flag = 1;
+}
+
+//Signal handler for Ctrl-C
+void interruptHandler() {
+    flag = 1;
+}

@@ -8,13 +8,13 @@ OBJS2=user.o queue.o
 oss: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) 
 
-oss.o: oss.c oss_struct.h
+oss.o: oss.c oss_structs.h
 	$(CC) $(CFLAGS) -c oss.c 
 
-queue.o: queue.c oss_struct.h
+queue.o: queue.c oss_structs.h
 	$(CC) $(CFLAGS) -c queue.c 
 
-user.o: user.c oss_struct.h
+user.o: user.c oss_structs.h
 	$(CC) $(CFLAGS) -c user.c 
 
 user: $(OBJS2)
