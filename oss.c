@@ -189,6 +189,8 @@ int main(int argc, char *argv[]){
     for (a = 0; a < 256; a++){
         frames[a].pid = -1;
         frames[a].pageNumber = -1;
+        frames[a].referenceBit = 0;
+        frames[a].dirtyBit = 0;
     }
 
     while (flag != 1) {
@@ -263,13 +265,12 @@ int main(int argc, char *argv[]){
         //Checking messages in recieve message queue.
         if (msgrcv(rcmsgid, &recieveMsg, sizeof(sendMsg), 0, IPC_NOWAIT) != -1){
             sendMsg.mesg_type = recieveMsg.mesg_type;
-            
+            fprintf(logPtr, "OSS : %s\n", recieveMsg.mesg_text);
+            writtenTo++;
+
             //Handling memory request.
             if (recieveMsg.choice < 3){
-                fprintf(logPtr, "OSS : %s\n", recieveMsg.mesg_text);
-                writtenTo++;
                 int pageNumber = recieveMsg.address/1000;
-
                 int x;
                 for (x = 0; x < processes->size; x++){
                     if (processes->array[x].pid == recieveMsg.mesg_type){
@@ -300,7 +301,6 @@ int main(int argc, char *argv[]){
                                 processes->array[x].pageTable[pageNumber-1].dirtyBit = 1;
                             }
                             writtenTo++;
-                            clockptr->numTotalMemAccess++;
                             processes->array[x].numMemAccess++;
                             break;
                         }
@@ -360,6 +360,7 @@ int main(int argc, char *argv[]){
                                 clockptr->sec += (clockptr->nanoSec / ((int)1e9));
                                 clockptr->nanoSec = (clockptr->nanoSec % ((int)1e9));
                             }
+                            clockptr->numTotalFaults++;
                             break;
                         }
 
@@ -382,6 +383,7 @@ int main(int argc, char *argv[]){
                                     clockptr->sec, clockptr->nanoSec);
                         }
                         writtenTo++;
+                        clockptr->numTotalMemAccess++;
                         break;
                     }
                 }
@@ -430,6 +432,32 @@ int main(int argc, char *argv[]){
         //Checking
         if (writtenTo >= 10000){
             flag = 1;
+        }
+
+        if ((clockptr->numTotalMemAccess % 100) == 0){
+            fprintf(logPtr, "\nCurrent Memory Layout at %d.%d\n", clockptr->sec, clockptr->nanoSec);
+            int z,m;
+            for (z = 0; z < 256; z+16){
+                for (m = 0; m < 16; m++){
+                    if (frames[z+m].pid == -1){
+                        fprintf(logPtr, ".");
+                    }
+                    else{
+                        if (frames[z+m].dirtyBit == 0){
+                            fprintf(logPtr, "U");
+                        }
+                        else{
+                            fprintf(logPtr, "D");
+                        }
+                    }
+                }
+                fprintf(logPtr, "\n");
+                for (m = 0; m < 16; m++){
+                    fprintf(logPtr, "%d", frames[z+m].referenceBit);
+                }
+                fprintf(logPtr, "\n");
+            }
+            fprintf(logPtr, "\n");
         }
     }
 
